@@ -24,11 +24,16 @@ const SUPPORTED_DOMAINS = [
   "ted.com",
 ];
 
+type Video = {
+  title: string;
+  downloadUrl: string;
+};
+
 export default function YouTubeDownloader() {
   const [isMultipleUrls, setIsMultipleUrls] = useState(false);
   const [singleUrl, setSingleUrl] = useState("");
   const [multipleUrls, setMultipleUrls] = useState([""]);
-  const [videoList, setVideoList] = useState([]); // To store videos returned from the API
+  const [videoList, setVideoList] = useState<Video[]>([]); // Updated type
   const [isLoading, setIsLoading] = useState(false);
   const { theme, setTheme } = useTheme();
 
@@ -88,18 +93,21 @@ export default function YouTubeDownloader() {
       if (response.ok) {
         const data = await response.json();
 
-        // Separate successful and failed results
-        const successfulVideos = data.results.filter((result: any) => result.download_url);
+        const successfulVideos = data.results
+          .filter((result: any) => result.download_url)
+          .map((result: any) => ({
+            title: result.title,
+            downloadUrl: result.download_url,
+          }));
+
+        setVideoList(successfulVideos);
+
+        toast({
+          title: "Success",
+          description: `${successfulVideos.length} video(s) processed successfully.`,
+        });
+
         const failedVideos = data.results.filter((result: any) => result.error);
-
-        if (successfulVideos.length > 0) {
-          setVideoList(successfulVideos);
-          toast({
-            title: "Success",
-            description: `${successfulVideos.length} video(s) processed successfully.`,
-          });
-        }
-
         if (failedVideos.length > 0) {
           failedVideos.forEach((video: any) => {
             toast({
@@ -128,8 +136,7 @@ export default function YouTubeDownloader() {
     }
   };
 
-
-  const downloadVideo = (video: { title: string; downloadUrl: string }) => {
+  const downloadVideo = (video: Video) => {
     const anchor = document.createElement("a");
     anchor.href = video.downloadUrl;
     anchor.download = `${video.title}.mp4`;
@@ -175,31 +182,27 @@ export default function YouTubeDownloader() {
         />
       ) : (
         <div className="space-y-4">
-          {isLoading ? (
-            <Skeleton className="h-10 w-full" />
-          ) : (
-            multipleUrls.map((url, index) => (
-              <div key={index} className="flex gap-2">
-                <Input
-                  placeholder="Enter a video URL (e.g., https://youtube.com/...)"
-                  value={url}
-                  onChange={(e) => handleMultipleUrlChange(index, e.target.value)}
+          {multipleUrls.map((url, index) => (
+            <div key={index} className="flex gap-2">
+              <Input
+                placeholder="Enter a video URL (e.g., https://youtube.com/...)"
+                value={url}
+                onChange={(e) => handleMultipleUrlChange(index, e.target.value)}
+                disabled={isLoading}
+              />
+              {multipleUrls.length > 1 && (
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  onClick={() => handleRemoveUrlField(index)}
                   disabled={isLoading}
-                />
-                {multipleUrls.length > 1 && (
-                  <Button
-                    variant="destructive"
-                    size="icon"
-                    onClick={() => handleRemoveUrlField(index)}
-                    disabled={isLoading}
-                    className="hover:scale-105 transition-transform"
-                  >
-                    <DeleteIcon />
-                  </Button>
-                )}
-              </div>
-            ))
-          )}
+                  className="hover:scale-105 transition-transform"
+                >
+                  <DeleteIcon />
+                </Button>
+              )}
+            </div>
+          ))}
           <Button
             variant="outline"
             onClick={handleAddUrlField}
