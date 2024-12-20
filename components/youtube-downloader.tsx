@@ -77,7 +77,7 @@ export default function YouTubeDownloader() {
     setVideoList([]); // Clear the previous list
 
     try {
-      const response = await fetch("https://6c758110-0bd5-4216-b90e-8ca86ce88063-00-24tlew9tipsge.sisko.replit.dev/download", {
+      const response = await fetch("https://usamahun.pythonanywhere.com/download", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -88,26 +88,27 @@ export default function YouTubeDownloader() {
       if (response.ok) {
         const data = await response.json();
 
-        const videos = data.results
-          .map((result: any) => {
-            if (result.download_url) {
-              return { title: result.title, downloadUrl: result.download_url };
-            } else {
-              toast({
-                variant: "destructive",
-                title: "Error",
-                description: `Failed to process: ${result.url} (${result.error})`,
-              });
-              return null;
-            }
-          })
-          .filter(Boolean);
+        // Separate successful and failed results
+        const successfulVideos = data.results.filter((result: any) => result.download_url);
+        const failedVideos = data.results.filter((result: any) => result.error);
 
-        setVideoList(videos);
-        toast({
-          title: "Success",
-          description: "Videos processed successfully. Ready for download.",
-        });
+        if (successfulVideos.length > 0) {
+          setVideoList(successfulVideos);
+          toast({
+            title: "Success",
+            description: `${successfulVideos.length} video(s) processed successfully.`,
+          });
+        }
+
+        if (failedVideos.length > 0) {
+          failedVideos.forEach((video: any) => {
+            toast({
+              variant: "destructive",
+              title: "Error",
+              description: `Failed to process: ${video.url} (${video.error})`,
+            });
+          });
+        }
       } else {
         const error = await response.json();
         toast({
@@ -126,6 +127,7 @@ export default function YouTubeDownloader() {
       setIsLoading(false);
     }
   };
+
 
   const downloadVideo = (video: { title: string; downloadUrl: string }) => {
     const anchor = document.createElement("a");
