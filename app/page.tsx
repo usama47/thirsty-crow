@@ -6,7 +6,7 @@ import CSVReviewer from "@/components/csv-reviewer";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
-  const [activeSection, setActiveSection] = useState<"videos" | "csv">("videos");
+  const [activeSection, setActiveSection] = useState<"videos" | "csv">("csv");
 
   return (
     <main className="container mx-auto py-8 px-4">

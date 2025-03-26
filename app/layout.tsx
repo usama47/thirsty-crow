@@ -7,8 +7,8 @@ import { ThemeProvider } from 'next-themes';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'YouTube Video Downloader',
-  description: 'Download YouTube videos easily',
+  title: 'My OSPs Playground',
+  description: 'A collection of tools and utilities for my OSPs.'
 };
 
 export default function RootLayout({

@@ -10,19 +10,61 @@ interface Candidate {
 }
 
 export default function CSVReviewer() {
+  // Toggle between "upload" and "googleSheet" source types
+  const [sourceType, setSourceType] = useState<"upload" | "googleSheet">("upload");
   const [file, setFile] = useState<File | null>(null);
+  const [googleSheetUrl, setGoogleSheetUrl] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
 
-  // Handle file input change
+  // Handle file selection from upload
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setFile(e.target.files[0]);
     }
   };
 
-  // Parse CSV on upload
-  const handleUpload = () => {
+  // Fetch and parse CSV from a Google Sheets URL
+  const fetchGoogleSheetCSV = async (url: string) => {
+    try {
+      // Ensure the provided URL is in CSV export format.
+      // For example, transform:
+      // https://docs.google.com/spreadsheets/d/<sheetId>/edit?gid=<gid>
+      // into:
+      // https://docs.google.com/spreadsheets/d/<sheetId>/export?format=csv&id=<sheetId>&gid=<gid>
+      let csvUrl = url;
+      if (url.includes("/edit")) {
+        const sheetIdMatch = url.match(/\/d\/([^/]+)/);
+        const gidMatch = url.match(/gid=([\d]+)/);
+        if (sheetIdMatch && gidMatch) {
+          const sheetId = sheetIdMatch[1];
+          const gid = gidMatch[1];
+          csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&id=${sheetId}&gid=${gid}`;
+        }
+      }
+
+      const response = await fetch(csvUrl);
+      if (!response.ok) {
+        throw new Error("Failed to fetch Google Sheet CSV data.");
+      }
+      const csvText = await response.text();
+      Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          setCandidates(results.data as Candidate[]);
+        },
+        error: (err: any) => {
+          console.error("Error parsing CSV:", err);
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching Google Sheet:", error);
+    }
+  };
+
+  // Parse CSV from uploaded file
+  const parseUploadedCSV = () => {
     if (!file) return;
     Papa.parse(file, {
       header: true,
@@ -36,7 +78,18 @@ export default function CSVReviewer() {
     });
   };
 
-  // Compute full name from "First Name" and "Last Name" fields
+  // Handle submission based on selected source type
+  const handleSubmit = () => {
+    if (sourceType === "upload") {
+      parseUploadedCSV();
+    } else {
+      if (googleSheetUrl.trim()) {
+        fetchGoogleSheetCSV(googleSheetUrl.trim());
+      }
+    }
+  };
+
+  // Compute full name from "First name" and "Last name" fields
   const getFullName = (candidate: Candidate) => {
     const firstName = candidate["First name"] || "";
     const lastName = candidate["Last name"] || "";
@@ -71,55 +124,89 @@ export default function CSVReviewer() {
     <div className="max-w-4xl mx-auto p-4 space-y-6">
       <h2 className="text-2xl font-bold mb-4">CSV Reviewer</h2>
 
-      {/* CSV Upload Section */}
-      <div className="flex items-center space-x-2">
-        <input
-          type="file"
-          accept=".csv"
-          onChange={handleFileChange}
-          className="block w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4
-                     file:rounded file:border-0 file:text-sm file:font-semibold
-                     file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
-        />
-        <Button variant="outline" onClick={handleUpload}>
-          Submit CSV
+      {/* Source Type Toggle */}
+      <div className="flex gap-4 mb-4">
+        <Button
+          variant={sourceType === "upload" ? "default" : "outline"}
+          onClick={() => setSourceType("upload")}
+        >
+          Upload CSV
+        </Button>
+        <Button
+          variant={sourceType === "googleSheet" ? "default" : "outline"}
+          onClick={() => setSourceType("googleSheet")}
+          disabled
+        >
+          Google Sheets URL
         </Button>
       </div>
 
-      {/* Table View with selected columns */}
+      {/* Conditionally render input based on source type */}
+      {sourceType === "upload" ? (
+        <div className="flex items-center space-x-2">
+          <input
+            type="file"
+            accept=".csv"
+            onChange={handleFileChange}
+            className="block w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4
+                       file:rounded file:border-0 file:text-sm file:font-semibold
+                       file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
+          />
+        </div>
+      ) : (
+        <div className="flex items-center space-x-2">
+          <input
+            type="text"
+            placeholder="Enter Google Sheets URL"
+            value={googleSheetUrl}
+            onChange={(e) => setGoogleSheetUrl(e.target.value)}
+            className="w-full px-4 py-2 border rounded"
+          />
+        </div>
+      )}
+
+      <Button variant="outline" onClick={handleSubmit}>
+        Submit CSV
+      </Button>
+
+      {/* Beautified Table View with Selected Columns */}
       {candidates.length > 0 && (
-        <table className="w-full border-collapse border text-sm mt-4">
-          <thead className="bg-gray-200">
-            <tr>
-              <th className="border p-2">Name</th>
-              <th className="border p-2">Applied For</th>
-              <th className="border p-2">Institute</th>
-              <th className="border p-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {candidates.map((candidate, index) => (
-              <tr key={index} className="hover:bg-gray-100 transition-colors">
-                <td className="border p-2">{getFullName(candidate)}</td>
-                <td className="border p-2">
-                  {candidate["Position that you are applying for"] || "N/A"}
-                </td>
-                <td className="border p-2">{candidate["Institute"] || "N/A"}</td>
-                <td className="border p-2">
-                  <Button
-                    variant="outline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedCandidate(candidate);
-                    }}
-                  >
-                    View Details
-                  </Button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 bg-white dark:bg-gray-800 shadow-md rounded-lg">
+            <thead className="bg-gray-100 dark:bg-gray-900">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Applied For
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Institute
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200">
+              {candidates.map((candidate, index) => (
+                <tr
+                  key={index}
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+                  onClick={() => setSelectedCandidate(candidate)}
+                >
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {getFullName(candidate)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {candidate["Position that you are applying for"] || "N/A"}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {candidate["Institute"] || "N/A"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {/* Responsive, Scrollable Modal for Candidate Details */}
@@ -169,17 +256,23 @@ export default function CSVReviewer() {
                 </a>
               )}
             </div>
-            {/* Candidate Details Table */}
-            <table className="w-full mt-2 text-sm">
-              <tbody>
-                {Object.entries(selectedCandidate).map(([key, value]) => (
-                  <tr key={key}>
-                    <td className="font-semibold p-2 border capitalize">{key}</td>
-                    <td className="p-2 border">{formatValue(key, value)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {/* Beautified Candidate Details Table */}
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 bg-white dark:bg-gray-800">
+                <tbody className="divide-y divide-gray-200">
+                  {Object.entries(selectedCandidate).map(([key, value]) => (
+                    <tr key={key}>
+                      <td className="px-4 py-2 font-semibold text-gray-700 dark:text-gray-300 capitalize border">
+                        {key}
+                      </td>
+                      <td className="px-4 py-2 text-gray-900 dark:text-gray-100 border">
+                        {formatValue(key, value)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
