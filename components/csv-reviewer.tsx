@@ -17,14 +17,18 @@ export default function CSVReviewer() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
 
-  // Handle file selection from upload
+  // State for resume screening result
+  const [screeningResult, setScreeningResult] = useState<string | null>(null);
+  const [isScreening, setIsScreening] = useState(false);
+
+  // Handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setFile(e.target.files[0]);
     }
   };
 
-  // Fetch and parse CSV from a Google Sheets URL
+  // Fetch CSV from Google Sheets URL
   const fetchGoogleSheetCSV = async (url: string) => {
     try {
       // Ensure the provided URL is in CSV export format.
@@ -96,7 +100,7 @@ export default function CSVReviewer() {
     return `${firstName} ${lastName}`.trim() || "N/A";
   };
 
-  // Get WhatsApp link from WhatsApp or Phone field
+  // Get WhatsApp link using candidate phone info
   const getWhatsAppLink = (candidate: Candidate) => {
     const contact = candidate["Phone (WhatsApp)"] || candidate["Phone"];
     if (!contact) return null;
@@ -104,7 +108,7 @@ export default function CSVReviewer() {
     return number ? `https://wa.me/${number}` : null;
   };
 
-  // Format a date string into a proper English format if the key includes "date"
+  // Format a date string into a proper English format
   const formatValue = (key: string, value: any) => {
     if (typeof value === "string" && key.toLowerCase().includes("date")) {
       const date = new Date(value);
@@ -120,37 +124,89 @@ export default function CSVReviewer() {
     return value || "N/A";
   };
 
+  // Use Hugging Face's Inference API for resume screening
+  const handleScreenResume = async () => {
+    if (!selectedCandidate) return;
+    // For prototyping only: replace with your actual Hugging Face API token!
+    const HF_API_TOKEN = "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";
+
+    setIsScreening(true);
+    setScreeningResult(null);
+
+    // Assume the resume URL is provided in "Resume upload" or "CV"
+    const resumeUrl = selectedCandidate["Resume upload"] || selectedCandidate["CV"] || "N/A";
+    const appliedFor = selectedCandidate["Position that you are applying for"] || "the specified role";
+    const optionalInfo = selectedCandidate["Any past experience or project work that you would like to highlight? (Optional)"] || "see resume";
+    // Construct a prompt for the model
+    const prompt = `You are a hiring evaluator. Review the resume available at the following URL:
+  ${resumeUrl}
+  
+  Candidate Details:
+  Name: ${getFullName(selectedCandidate)}
+  Applied For: ${appliedFor}
+  Extra Info: ${optionalInfo}
+  Provide a concise evaluation summary of the candidate's suitability for the position of ${appliedFor}.`;
+  
+    try {
+      const response = await fetch("https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${HF_API_TOKEN}`,
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            max_new_tokens: 300,
+            temperature: 0.5,
+          },
+        }),
+      });
+      const data = await response.json();
+      let result = "No response.";
+
+      if (data.error) {
+        result = data.error;
+      } else if (data.generated_text) {
+        result = data.generated_text.trim();
+      } else if (Array.isArray(data) && data[0].generated_text) {
+        result = data[0].generated_text.trim();
+      }
+      // Optionally, if the result still includes the prompt, you can remove it:
+      result = result.replace(prompt, "").trim();
+  
+      setScreeningResult(result);
+    } catch (error) {
+      console.error("Error screening resume:", error);
+      setScreeningResult("An error occurred while screening the resume.");
+    } finally {
+      setIsScreening(false);
+    }
+  };
+  
+
   return (
     <div className="max-w-4xl mx-auto p-4 space-y-6">
       <h2 className="text-2xl font-bold mb-4">CSV Reviewer</h2>
 
       {/* Source Type Toggle */}
       <div className="flex gap-4 mb-4">
-        <Button
-          variant={sourceType === "upload" ? "default" : "outline"}
-          onClick={() => setSourceType("upload")}
-        >
+        <Button variant={sourceType === "upload" ? "default" : "outline"} onClick={() => setSourceType("upload")}>
           Upload CSV
         </Button>
-        <Button
-          variant={sourceType === "googleSheet" ? "default" : "outline"}
-          onClick={() => setSourceType("googleSheet")}
-          disabled
-        >
+        <Button variant={sourceType === "googleSheet" ? "default" : "outline"} onClick={() => setSourceType("googleSheet")} disabled>
           Google Sheets URL
         </Button>
       </div>
 
-      {/* Conditionally render input based on source type */}
+      {/* Input Based on Source Type */}
       {sourceType === "upload" ? (
         <div className="flex items-center space-x-2">
           <input
             type="file"
             accept=".csv"
             onChange={handleFileChange}
-            className="block w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4
-                       file:rounded file:border-0 file:text-sm file:font-semibold
-                       file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
+            className="block w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded file:border-1 file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
           />
         </div>
       ) : (
@@ -169,7 +225,7 @@ export default function CSVReviewer() {
         Submit CSV
       </Button>
 
-      {/* Beautified Table View with Selected Columns */}
+      {/* Beautified Table View */}
       {candidates.length > 0 && (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 bg-white dark:bg-gray-800 shadow-md rounded-lg">
@@ -191,11 +247,12 @@ export default function CSVReviewer() {
                 <tr
                   key={index}
                   className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
-                  onClick={() => setSelectedCandidate(candidate)}
+                  onClick={() => {
+                    setSelectedCandidate(candidate);
+                    setScreeningResult(null);
+                  }}
                 >
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {getFullName(candidate)}
-                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{getFullName(candidate)}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {candidate["Position that you are applying for"] || "N/A"}
                   </td>
@@ -209,65 +266,55 @@ export default function CSVReviewer() {
         </div>
       )}
 
-      {/* Responsive, Scrollable Modal for Candidate Details */}
+      {/* Modal for Candidate Details */}
       {selectedCandidate && (
         <div className="fixed inset-0 flex items-center justify-center z-50">
-          {/* Overlay */}
-          <div
-            className="absolute inset-0 bg-black opacity-50"
-            onClick={() => setSelectedCandidate(null)}
-          ></div>
+          {/* Modal Overlay */}
+          <div className="absolute inset-0 bg-black opacity-50" onClick={() => setSelectedCandidate(null)}></div>
           {/* Modal Content */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg z-10 w-full max-w-2xl p-4 relative max-h-[80vh] overflow-y-auto">
-            <button
-              onClick={() => setSelectedCandidate(null)}
-              className="absolute top-2 right-2 text-xl font-bold"
-            >
+            <button onClick={() => setSelectedCandidate(null)} className="absolute top-2 right-2 text-xl font-bold">
               &times;
             </button>
             <h3 className="text-xl font-bold mb-4">Candidate Details</h3>
-            {/* Action Buttons */}
+            {/* Screen Resume Button */}
+            <div className="mb-4">
+              <Button variant="default" onClick={handleScreenResume} disabled={isScreening}>
+                {isScreening ? "Screening Resume..." : "Screen Resume"}
+              </Button>
+              {screeningResult && (
+                <div className="mt-4 p-4 border rounded bg-gray-100">
+                  <h4 className="font-semibold mb-2">Screening Result:</h4>
+                  <p>{screeningResult}</p>
+                </div>
+              )}
+            </div>
+            {/* External Action Buttons */}
             <div className="flex flex-wrap gap-4 mb-4">
               {selectedCandidate["LinkedIn Url"] && (
-                <a
-                  href={selectedCandidate["LinkedIn Url"]}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href={selectedCandidate["LinkedIn Url"]} target="_blank" rel="noopener noreferrer">
                   <Button variant="default">LinkedIn</Button>
                 </a>
               )}
               {(selectedCandidate["Resume upload"] || selectedCandidate["CV"]) && (
-                <a
-                  href={selectedCandidate["Resume upload"] || selectedCandidate["CV"]}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href={selectedCandidate["Resume upload"] || selectedCandidate["CV"]} target="_blank" rel="noopener noreferrer">
                   <Button variant="default">Download Resume</Button>
                 </a>
               )}
               {getWhatsAppLink(selectedCandidate) && (
-                <a
-                  href={getWhatsAppLink(selectedCandidate)!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href={getWhatsAppLink(selectedCandidate)!} target="_blank" rel="noopener noreferrer">
                   <Button variant="default">WhatsApp</Button>
                 </a>
               )}
             </div>
-            {/* Beautified Candidate Details Table */}
+            {/* Candidate Details Table */}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 bg-white dark:bg-gray-800">
                 <tbody className="divide-y divide-gray-200">
                   {Object.entries(selectedCandidate).map(([key, value]) => (
                     <tr key={key}>
-                      <td className="px-4 py-2 font-semibold text-gray-700 dark:text-gray-300 capitalize border">
-                        {key}
-                      </td>
-                      <td className="px-4 py-2 text-gray-900 dark:text-gray-100 border">
-                        {formatValue(key, value)}
-                      </td>
+                      <td className="px-4 py-2 font-semibold text-gray-700 dark:text-gray-300 capitalize border">{key}</td>
+                      <td className="px-4 py-2 text-gray-900 dark:text-gray-100 border">{formatValue(key, value)}</td>
                     </tr>
                   ))}
                 </tbody>
