@@ -161,7 +161,7 @@ export default function YouTubeDownloader() {
 
       <h1 className="text-2xl font-bold text-center">Any Video Downloader</h1>
       <p className="text-center text-gray-500">
-        Download videos from multiple platforms like YouTube, TikTok, and Instagram, etc.
+        Download videos from multiple platforms like YouTube, TED, FB and Instagram, etc.
       </p>
 
       <div className="flex items-center space-x-2">
