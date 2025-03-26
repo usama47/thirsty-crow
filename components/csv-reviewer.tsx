@@ -31,11 +31,6 @@ export default function CSVReviewer() {
   // Fetch CSV from Google Sheets URL
   const fetchGoogleSheetCSV = async (url: string) => {
     try {
-      // Ensure the provided URL is in CSV export format.
-      // For example, transform:
-      // https://docs.google.com/spreadsheets/d/<sheetId>/edit?gid=<gid>
-      // into:
-      // https://docs.google.com/spreadsheets/d/<sheetId>/export?format=csv&id=<sheetId>&gid=<gid>
       let csvUrl = url;
       if (url.includes("/edit")) {
         const sheetIdMatch = url.match(/\/d\/([^/]+)/);
@@ -87,9 +82,12 @@ export default function CSVReviewer() {
     if (sourceType === "upload") {
       parseUploadedCSV();
     } else {
-      if (googleSheetUrl.trim()) {
-        fetchGoogleSheetCSV(googleSheetUrl.trim());
+      // Validate Google Sheet URL format
+      if (!googleSheetUrl.trim().includes("docs.google.com/spreadsheets/d/")) {
+        alert("Please enter a valid Google Sheets URL (e.g., https://docs.google.com/spreadsheets/d/yourSheetId/edit?gid=yourGid).");
+        return;
       }
+      fetchGoogleSheetCSV(googleSheetUrl.trim());
     }
   };
 
@@ -133,20 +131,18 @@ export default function CSVReviewer() {
     setIsScreening(true);
     setScreeningResult(null);
 
-    // Assume the resume URL is provided in "Resume upload" or "CV"
     const resumeUrl = selectedCandidate["Resume upload"] || selectedCandidate["CV"] || "N/A";
     const appliedFor = selectedCandidate["Position that you are applying for"] || "the specified role";
     const optionalInfo = selectedCandidate["Any past experience or project work that you would like to highlight? (Optional)"] || "see resume";
-    // Construct a prompt for the model
     const prompt = `You are a hiring evaluator. Review the resume available at the following URL:
-  ${resumeUrl}
-  
-  Candidate Details:
-  Name: ${getFullName(selectedCandidate)}
-  Applied For: ${appliedFor}
-  Extra Info: ${optionalInfo}
-  Provide a concise evaluation summary of the candidate's suitability for the position of ${appliedFor}.`;
-  
+    ${resumeUrl}
+
+    Candidate Details:
+    Name: ${getFullName(selectedCandidate)}
+    Applied For: ${appliedFor}
+    Extra Info: ${optionalInfo}
+    Provide a concise evaluation summary of the candidate's suitability for the position of ${appliedFor}.`;
+
     try {
       const response = await fetch("https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct", {
         method: "POST",
@@ -172,7 +168,7 @@ export default function CSVReviewer() {
       } else if (Array.isArray(data) && data[0].generated_text) {
         result = data[0].generated_text.trim();
       }
-      // Optionally, if the result still includes the prompt, you can remove it:
+      // Remove the prompt if it's echoed back (optional)
       result = result.replace(prompt, "").trim();
   
       setScreeningResult(result);
@@ -194,7 +190,7 @@ export default function CSVReviewer() {
         <Button variant={sourceType === "upload" ? "default" : "outline"} onClick={() => setSourceType("upload")}>
           Upload CSV
         </Button>
-        <Button variant={sourceType === "googleSheet" ? "default" : "outline"} onClick={() => setSourceType("googleSheet")} disabled>
+        <Button variant={sourceType === "googleSheet" ? "default" : "outline"} onClick={() => setSourceType("googleSheet")}>
           Google Sheets URL
         </Button>
       </div>
@@ -208,22 +204,29 @@ export default function CSVReviewer() {
             onChange={handleFileChange}
             className="block w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded file:border-1 file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
           />
+          <Button variant="outline" onClick={handleSubmit}>
+            Submit CSV
+          </Button>
         </div>
       ) : (
-        <div className="flex items-center space-x-2">
-          <input
-            type="text"
-            placeholder="Enter Google Sheets URL"
-            value={googleSheetUrl}
-            onChange={(e) => setGoogleSheetUrl(e.target.value)}
-            className="w-full px-4 py-2 border rounded"
-          />
+        <div className="flex flex-col">
+          <div className="flex items-center space-x-2">
+            <input
+              type="text"
+              placeholder="Enter Google Sheets URL"
+              value={googleSheetUrl}
+              onChange={(e) => setGoogleSheetUrl(e.target.value)}
+              className="w-full px-4 py-2 border rounded"
+            />
+            <Button variant="outline" onClick={handleSubmit}>
+              Submit CSV
+            </Button>
+            <span className="text-gray-500 text-xl" title="Enter the URL from Google Sheets. Ensure your sheet is set to 'Anyone with the link can view' and In Google Sheets, go to File > Publish to the web and publish it as CSV.">ℹ️</span>
+          </div>
+          <small className="text-gray-500">Example: https://docs.google.com/spreadsheets/d/yourSheetId/edit?gid=yourGid</small>
         </div>
       )}
 
-      <Button variant="outline" onClick={handleSubmit}>
-        Submit CSV
-      </Button>
 
       {/* Beautified Table View */}
       {candidates.length > 0 && (
