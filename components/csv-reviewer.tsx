@@ -9,15 +9,58 @@ interface Candidate {
   [key: string]: any;
 }
 
+// Utility function to get resume URL from candidate data
+const getResumeUrl = (candidate: Candidate): string | null => {
+  // List of possible substrings that might indicate a resume URL
+  const possibleKeys = ["resume", "cv", "portfolio", "profile"];
+  for (const key in candidate) {
+    const lowerKey = key.toLowerCase();
+    if (possibleKeys.some((term) => lowerKey.includes(term))) {
+      const value = candidate[key];
+      if (value && typeof value === "string" && value.trim() !== "") {
+        return value.trim();
+      }
+    }
+  }
+  return null;
+};
+
+// Utility function to get LinkedIn URL from candidate data
+const getLinkedInUrl = (candidate: Candidate): string | null => {
+  for (const key in candidate) {
+    if (key.toLowerCase().includes("linkedin")) {
+      const value = candidate[key];
+      if (value && typeof value === "string" && value.trim() !== "") {
+        return value.trim();
+      }
+    }
+  }
+  return null;
+};
+
+// Updated utility function to get WhatsApp link by checking multiple possible keys
+const getWhatsAppLink = (candidate: Candidate): string | null => {
+  const possibleKeys = ["phone", "number", "whatsapp", "contact"];
+  for (const key in candidate) {
+    if (possibleKeys.some((term) => key.toLowerCase().includes(term))) {
+      const value = candidate[key];
+      if (value && typeof value === "string" && value.trim() !== "") {
+        const number = value.replace(/\D/g, "");
+        if (number) {
+          return `https://wa.me/${number}`;
+        }
+      }
+    }
+  }
+  return null;
+};
+
 export default function CSVReviewer() {
-  // Toggle between "upload" and "googleSheet" source types
   const [sourceType, setSourceType] = useState<"upload" | "googleSheet">("upload");
   const [file, setFile] = useState<File | null>(null);
   const [googleSheetUrl, setGoogleSheetUrl] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
-
-  // State for resume screening result
   const [screeningResult, setScreeningResult] = useState<string | null>(null);
   const [isScreening, setIsScreening] = useState(false);
 
@@ -41,7 +84,6 @@ export default function CSVReviewer() {
           csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&id=${sheetId}&gid=${gid}`;
         }
       }
-
       const response = await fetch(csvUrl);
       if (!response.ok) {
         throw new Error("Failed to fetch Google Sheet CSV data.");
@@ -77,7 +119,7 @@ export default function CSVReviewer() {
     });
   };
 
-  // Handle submission based on selected source type
+  // Handle submission based on source type
   const handleSubmit = () => {
     if (sourceType === "upload") {
       parseUploadedCSV();
@@ -91,19 +133,11 @@ export default function CSVReviewer() {
     }
   };
 
-  // Compute full name from "First name" and "Last name" fields
+  // Compute full name from candidate fields
   const getFullName = (candidate: Candidate) => {
     const firstName = candidate["First name"] || "";
     const lastName = candidate["Last name"] || "";
     return `${firstName} ${lastName}`.trim() || "N/A";
-  };
-
-  // Get WhatsApp link using candidate phone info
-  const getWhatsAppLink = (candidate: Candidate) => {
-    const contact = candidate["Phone (WhatsApp)"] || candidate["Phone"];
-    if (!contact) return null;
-    const number = contact.replace(/\D/g, "");
-    return number ? `https://wa.me/${number}` : null;
   };
 
   // Format a date string into a proper English format
@@ -131,9 +165,11 @@ export default function CSVReviewer() {
     setIsScreening(true);
     setScreeningResult(null);
 
-    const resumeUrl = selectedCandidate["Resume upload"] || selectedCandidate["CV"] || "N/A";
+    const resumeUrl = getResumeUrl(selectedCandidate) || "N/A";
     const appliedFor = selectedCandidate["Position that you are applying for"] || "the specified role";
-    const optionalInfo = selectedCandidate["Any past experience or project work that you would like to highlight? (Optional)"] || "see resume";
+    const optionalInfo =
+      selectedCandidate["Any past experience or project work that you would like to highlight? (Optional)"] ||
+      "see resume";
     const prompt = `You are a hiring evaluator. Review the resume available at the following URL:
     ${resumeUrl}
 
@@ -160,7 +196,6 @@ export default function CSVReviewer() {
       });
       const data = await response.json();
       let result = "No response.";
-
       if (data.error) {
         result = data.error;
       } else if (data.generated_text) {
@@ -168,9 +203,7 @@ export default function CSVReviewer() {
       } else if (Array.isArray(data) && data[0].generated_text) {
         result = data[0].generated_text.trim();
       }
-      // Remove the prompt if it's echoed back (optional)
       result = result.replace(prompt, "").trim();
-  
       setScreeningResult(result);
     } catch (error) {
       console.error("Error screening resume:", error);
@@ -179,11 +212,10 @@ export default function CSVReviewer() {
       setIsScreening(false);
     }
   };
-  
 
   return (
     <div className="max-w-4xl mx-auto p-4 space-y-6">
-      <h2 className="text-2xl font-bold mb-4">CSV Reviewer</h2>
+      <h3 className="text-2xl font-bold mb-4">Candidate Review & Screening Portal</h3>
 
       {/* Source Type Toggle */}
       <div className="flex gap-4 mb-4">
@@ -195,14 +227,14 @@ export default function CSVReviewer() {
         </Button>
       </div>
 
-      {/* Input Based on Source Type */}
+      {/* Input and Submit Button in a Row */}
       {sourceType === "upload" ? (
         <div className="flex items-center space-x-2">
           <input
             type="file"
             accept=".csv"
             onChange={handleFileChange}
-            className="block w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded file:border-1 file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
+            className="block w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded file:border file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
           />
           <Button variant="outline" onClick={handleSubmit}>
             Submit CSV
@@ -213,7 +245,7 @@ export default function CSVReviewer() {
           <div className="flex items-center space-x-2">
             <input
               type="text"
-              placeholder="Enter Google Sheets URL"
+              placeholder="Paste Google Sheets URL"
               value={googleSheetUrl}
               onChange={(e) => setGoogleSheetUrl(e.target.value)}
               className="w-full px-4 py-2 border rounded"
@@ -221,12 +253,16 @@ export default function CSVReviewer() {
             <Button variant="outline" onClick={handleSubmit}>
               Submit CSV
             </Button>
-            <span className="text-gray-500 text-xl" title="Enter the URL from Google Sheets. Ensure your sheet is set to 'Anyone with the link can view' and In Google Sheets, go to File > Publish to the web and publish it as CSV.">ℹ️</span>
+            <span
+              title="Enter the URL from Google Sheets. Ensure your sheet is set to 'Anyone with the link can view' (or published as CSV) for proper access."
+              className="h-5 w-5 text-gray-500"
+            >
+              ℹ️
+            </span>
           </div>
           <small className="text-gray-500">Example: https://docs.google.com/spreadsheets/d/yourSheetId/edit?gid=yourGid</small>
         </div>
       )}
-
 
       {/* Beautified Table View */}
       {candidates.length > 0 && (
@@ -272,9 +308,7 @@ export default function CSVReviewer() {
       {/* Modal for Candidate Details */}
       {selectedCandidate && (
         <div className="fixed inset-0 flex items-center justify-center z-50">
-          {/* Modal Overlay */}
           <div className="absolute inset-0 bg-black opacity-50" onClick={() => setSelectedCandidate(null)}></div>
-          {/* Modal Content */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg z-10 w-full max-w-2xl p-4 relative max-h-[80vh] overflow-y-auto">
             <button onClick={() => setSelectedCandidate(null)} className="absolute top-2 right-2 text-xl font-bold">
               &times;
@@ -294,13 +328,13 @@ export default function CSVReviewer() {
             </div>
             {/* External Action Buttons */}
             <div className="flex flex-wrap gap-4 mb-4">
-              {selectedCandidate["LinkedIn Url"] && (
-                <a href={selectedCandidate["LinkedIn Url"]} target="_blank" rel="noopener noreferrer">
+              {getLinkedInUrl(selectedCandidate) && (
+                <a href={getLinkedInUrl(selectedCandidate)!} target="_blank" rel="noopener noreferrer">
                   <Button variant="default">LinkedIn</Button>
                 </a>
               )}
-              {(selectedCandidate["Resume upload"] || selectedCandidate["CV"]) && (
-                <a href={selectedCandidate["Resume upload"] || selectedCandidate["CV"]} target="_blank" rel="noopener noreferrer">
+              {getResumeUrl(selectedCandidate) && (
+                <a href={getResumeUrl(selectedCandidate)!} target="_blank" rel="noopener noreferrer">
                   <Button variant="default">Download Resume</Button>
                 </a>
               )}

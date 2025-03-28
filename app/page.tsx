@@ -22,8 +22,9 @@ export default function Home() {
         <Button
           variant={activeSection === "videos" ? "default" : "outline"}
           onClick={() => setActiveSection("videos")}
+          disabled
         >
-          Download Videos
+          Download Bulk Videos
         </Button>
       </div>
 
