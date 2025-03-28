@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 
@@ -9,9 +9,129 @@ interface Candidate {
   [key: string]: any;
 }
 
+// Define a type for model configuration
+interface ModelConfig {
+  value: string;
+  endpoint: string;
+  label: string;
+  info: string;
+  apiHandler: (prompt: string, apiToken: string) => Promise<string>;
+}
+
+// Define available models for screening
+const availableModels: ModelConfig[] = [
+  {
+    value: "tiiuae/falcon-7b-instruct",
+    endpoint: "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct",
+    label: "Falcon 7B Instruct (Default)",
+    info: "Falcon 7B: Known for its balanced performance.",
+    apiHandler: async (prompt, apiToken) => {
+      const response = await fetch("https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            max_new_tokens: 300,
+            temperature: 0.7,
+            return_full_text: false,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      return data[0]?.generated_text || data.generated_text || "No response generated.";
+    },
+  },
+  {
+    value: "mistralai/Mistral-7B-Instruct-v0.2",
+    endpoint: "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
+    label: "Mistral 7B Instruct",
+    info: "Mistral 7B: Known for high-quality performance and good reasoning capabilities.",
+    apiHandler: async (prompt, apiToken) => {
+      const response = await fetch("https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            max_new_tokens: 300,
+            temperature: 0.6,
+            top_p: 0.9,
+            return_full_text: false,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      return data[0]?.generated_text || data.generated_text || "No response generated.";
+    },
+  },
+  {
+    value: "HuggingFaceH4/zephyr-7b-beta",
+    endpoint: "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta",
+    label: "Zephyr 7B Beta",
+    info: "Zephyr 7B: Optimized for chat and instruction-following tasks with strong performance.",
+    apiHandler: async (prompt, apiToken) => {
+      const response = await fetch("https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            max_new_tokens: 300,
+            temperature: 0.5,
+            top_k: 50,
+            return_full_text: false,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      return data[0]?.generated_text || data.generated_text || "No response generated.";
+    },
+  },
+  {
+    value: "openai",
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    label: "OpenAI GPT-3.5 Turbo",
+    info: "Higher quality but with usage restrictions.",
+    apiHandler: async (prompt, apiToken) => {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages: [
+            { role: "system", content: "You are a helpful assistant specialized in resume screening and candidate evaluation." },
+            { role: "user", content: prompt },
+          ],
+          max_tokens: 300,
+          temperature: 0.6,
+          top_p: 1.0,
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      return data.choices[0]?.message?.content || "No response generated.";
+    },
+  },
+];
+
 // Utility function to get resume URL from candidate data
 const getResumeUrl = (candidate: Candidate): string | null => {
-  // List of possible substrings that might indicate a resume URL
   const possibleKeys = ["resume", "cv", "portfolio", "profile"];
   for (const key in candidate) {
     const lowerKey = key.toLowerCase();
@@ -38,7 +158,7 @@ const getLinkedInUrl = (candidate: Candidate): string | null => {
   return null;
 };
 
-// Updated utility function to get WhatsApp link by checking multiple possible keys
+// Utility function to get WhatsApp link from candidate data using multiple possible keys
 const getWhatsAppLink = (candidate: Candidate): string | null => {
   const possibleKeys = ["phone", "number", "whatsapp", "contact"];
   for (const key in candidate) {
@@ -63,6 +183,12 @@ export default function CSVReviewer() {
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [screeningResult, setScreeningResult] = useState<string | null>(null);
   const [isScreening, setIsScreening] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState("");
+  // Remove API token input from main view; token will be entered in modal instead.
+  const [apiToken, setApiToken] = useState("");
+
+  // State for selected model; default to the first available model.
+  const [selectedModel, setSelectedModel] = useState<ModelConfig>(availableModels[0]);
 
   // Handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,12 +245,11 @@ export default function CSVReviewer() {
     });
   };
 
-  // Handle submission based on source type
+  // Handle submission based on selected source type
   const handleSubmit = () => {
     if (sourceType === "upload") {
       parseUploadedCSV();
     } else {
-      // Validate Google Sheet URL format
       if (!googleSheetUrl.trim().includes("docs.google.com/spreadsheets/d/")) {
         alert("Please enter a valid Google Sheets URL (e.g., https://docs.google.com/spreadsheets/d/yourSheetId/edit?gid=yourGid).");
         return;
@@ -156,58 +281,54 @@ export default function CSVReviewer() {
     return value || "N/A";
   };
 
-  // Use Hugging Face's Inference API for resume screening
-  const handleScreenResume = async () => {
-    if (!selectedCandidate) return;
-    // For prototyping only: replace with your actual Hugging Face API token!
-    const HF_API_TOKEN = "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";
+  // When a candidate is selected, set a default custom prompt for editing
+  useEffect(() => {
+    if (selectedCandidate) {
+      const resumeUrl = getResumeUrl(selectedCandidate) || "N/A";
+      const appliedFor = selectedCandidate["Position that you are applying for"] || "the specified role";
+      const optionalInfo =
+        selectedCandidate["Any past experience or project work that you would like to highlight? (Optional)"] ||
+        "see resume";
+      const defaultPrompt = `You are a hiring evaluator. Review the resume available with the following details:
 
+Candidate Details:
+Name: ${getFullName(selectedCandidate)}
+Applied For: ${appliedFor}
+Extra Info: ${optionalInfo} 
+Provide a concise evaluation summary of the candidate's suitability for the position of ${appliedFor} 
+Resume URL: ${resumeUrl}.`;
+      setCustomPrompt(defaultPrompt);
+    } else {
+      setCustomPrompt("");
+    }
+  }, [selectedCandidate]);
+
+  // Use selected model's API handler for resume screening using the custom prompt and API token
+  const handleScreenResume = async () => {
+    if (!selectedCandidate || !apiToken) {
+      alert("Please enter a valid API token in the modal.");
+      return;
+    }
     setIsScreening(true);
     setScreeningResult(null);
 
-    const resumeUrl = getResumeUrl(selectedCandidate) || "N/A";
-    const appliedFor = selectedCandidate["Position that you are applying for"] || "the specified role";
-    const optionalInfo =
-      selectedCandidate["Any past experience or project work that you would like to highlight? (Optional)"] ||
-      "see resume";
-    const prompt = `You are a hiring evaluator. Review the resume available at the following URL:
-    ${resumeUrl}
-
-    Candidate Details:
-    Name: ${getFullName(selectedCandidate)}
-    Applied For: ${appliedFor}
-    Extra Info: ${optionalInfo}
-    Provide a concise evaluation summary of the candidate's suitability for the position of ${appliedFor}.`;
-
     try {
-      const response = await fetch("https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${HF_API_TOKEN}`,
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 300,
-            temperature: 0.5,
-          },
-        }),
-      });
-      const data = await response.json();
-      let result = "No response.";
-      if (data.error) {
-        result = data.error;
-      } else if (data.generated_text) {
-        result = data.generated_text.trim();
-      } else if (Array.isArray(data) && data[0].generated_text) {
-        result = data[0].generated_text.trim();
-      }
-      result = result.replace(prompt, "").trim();
+      const result = await selectedModel.apiHandler(customPrompt, apiToken);
       setScreeningResult(result);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error screening resume:", error);
-      setScreeningResult("An error occurred while screening the resume.");
+      let errorMsg = "Unknown error.";
+      if (error instanceof Error) {
+        errorMsg = error.message;
+      } else if (error && typeof error === "object") {
+        // Check if the error has an "error" property with a message
+        if (error.error && error.error.message) {
+          errorMsg = error.error.message;
+        } else {
+          errorMsg = JSON.stringify(error);
+        }
+      }
+      setScreeningResult(`An error occurred: ${errorMsg}`);
     } finally {
       setIsScreening(false);
     }
@@ -314,6 +435,56 @@ export default function CSVReviewer() {
               &times;
             </button>
             <h3 className="text-xl font-bold mb-4">Candidate Details</h3>
+
+            {/* API Token & Model Selection inside Modal */}
+            <div className="flex flex-col gap-2 mb-4">
+              <label className="block font-medium">API Token</label>
+              <input
+                type="password"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                placeholder="Enter API Token (Hugging Face or OpenAI)"
+                className="w-full px-4 py-2 border rounded"
+              />
+              <small className="text-gray-500">
+                {selectedModel.value.includes("huggingface") ? "Hugging Face API Token" : "OpenAI API Token"}
+              </small>
+
+              <div className="flex items-center gap-2">
+                <label className="font-medium">Select Model:</label>
+                <select
+                  value={selectedModel.value}
+                  onChange={(e) => {
+                    const model = availableModels.find((m) => m.value === e.target.value);
+                    if (model) {
+                      setSelectedModel(model);
+                    }
+                  }}
+                  className="px-4 py-2 border rounded"
+                >
+                  {availableModels.map((model) => (
+                    <option key={model.value} value={model.value}>
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
+                <span title={selectedModel.info} className="h-5 w-5 text-gray-500">
+                  ℹ️
+                </span>
+              </div>
+            </div>
+
+            {/* Custom Prompt Input */}
+            <div className="mb-4">
+              <label className="block mb-2 font-medium">Custom Screening Prompt</label>
+              <textarea
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                className="w-full p-2 border rounded h-32"
+                placeholder="Edit the default prompt as needed..."
+              />
+            </div>
+
             {/* Screen Resume Button */}
             <div className="mb-4">
               <Button variant="default" onClick={handleScreenResume} disabled={isScreening}>
@@ -326,6 +497,7 @@ export default function CSVReviewer() {
                 </div>
               )}
             </div>
+
             {/* External Action Buttons */}
             <div className="flex flex-wrap gap-4 mb-4">
               {getLinkedInUrl(selectedCandidate) && (
@@ -344,14 +516,19 @@ export default function CSVReviewer() {
                 </a>
               )}
             </div>
+
             {/* Candidate Details Table */}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 bg-white dark:bg-gray-800">
                 <tbody className="divide-y divide-gray-200">
                   {Object.entries(selectedCandidate).map(([key, value]) => (
                     <tr key={key}>
-                      <td className="px-4 py-2 font-semibold text-gray-700 dark:text-gray-300 capitalize border">{key}</td>
-                      <td className="px-4 py-2 text-gray-900 dark:text-gray-100 border">{formatValue(key, value)}</td>
+                      <td className="px-4 py-2 font-semibold text-gray-700 dark:text-gray-300 capitalize border">
+                        {key}
+                      </td>
+                      <td className="px-4 py-2 text-gray-900 dark:text-gray-100 border">
+                        {formatValue(key, value)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
